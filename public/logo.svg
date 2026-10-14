@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="局域网传输">
+  <title>局域网传输</title>
+  <defs>
+    <!-- 上翼：机头亮银 → 翼尾银灰 -->
+    <linearGradient id="gTop" x1="397" y1="116" x2="116" y2="242" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#D6D7DE"/>
+      <stop offset="0.35" stop-color="#A2A3AD"/>
+      <stop offset="1" stop-color="#5C5D67"/>
+    </linearGradient>
+    <!-- 下翼：折面暗部，深灰 → 近黑，与上翼拉开体积 -->
+    <linearGradient id="gBot" x1="397" y1="116" x2="271" y2="397" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7B7C86"/>
+      <stop offset="0.45" stop-color="#46474F"/>
+      <stop offset="1" stop-color="#22232A"/>
+    </linearGradient>
+    <!-- 尾迹：由近及远淡出，表现“正在发送” -->
+    <linearGradient id="gTrail" x1="100" y1="412" x2="216" y2="276" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#BABBC4" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#7C7D88" stop-opacity="0.85"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 白色圆角底板（极浅描边，保证在浅色界面上仍能看清边界） -->
+  <rect x="1" y="1" width="510" height="510" rx="115" fill="#FFFFFF" stroke="#ECECEF" stroke-width="2"/>
+
+  <!-- 传输尾迹 -->
+  <g stroke="url(#gTrail)" stroke-linecap="round" fill="none">
+    <path d="M124 366L198 292" stroke-width="14"/>
+    <path d="M158 408L216 350" stroke-width="11"/>
+    <path d="M102 314L138 278" stroke-width="9"/>
+  </g>
+
+  <!-- 纸飞机：沿 45° 向右上起飞，两翼关于飞行轴对称 -->
+  <g stroke="#2A2B31" stroke-opacity="0.35" stroke-width="4" stroke-linejoin="round">
+    <path d="M397 116 L116 242 L243 270 Z" fill="url(#gTop)"/>
+    <path d="M397 116 L243 270 L271 397 Z" fill="url(#gBot)"/>
+  </g>
+  <!-- 折痕高光：仅在较大尺寸下可见，表现纸张折起的银亮边缘 -->
+  <path d="M385 134L258 261" stroke="#F2F3F7" stroke-opacity="0.55" stroke-width="3" stroke-linecap="round" fill="none"/>
+</svg>

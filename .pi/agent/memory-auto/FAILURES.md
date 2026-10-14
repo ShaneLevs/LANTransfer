@@ -1,0 +1,6 @@
+<!-- mid: 20261014-222f | t: 2026-10-14 14:49:23 | p: LANTransfer | src: auto | tags: lantransfer,mock,smoke-test,vite,build,asset-hash,agent-browser -->
+LANTransfer dist mock 烟测的两个坑：(1) `npm run build` 会重新生成带 hash 的 dist/assets（如 index--HUpJty8.js），旧 mock 页面引用的旧 hash 文件会 404 → 白屏且 window.services 缺失；重建后必须用最新 dist/index.html 重新生成 mock 页并重启静态 http.server（用 curl 检查 assets 是否 200）。(2) agent-browser 会话可能卡死：`open` 打印成功 URL 但 location.href 一直停在 about:blank、body.innerText 为空、scripts:0，close 后重开也未必恢复；排查页面本身之前先用 `eval "location.href"` 确认浏览器真的加载了页面，别把工具卡死误判成前端代码问题。
+
+<!-- mid: 20261014-6932 | t: 2026-10-14 14:51:00 | p: LANTransfer | src: auto | tags: lantransfer,mock,smoke-test,vite,build,asset-hash,agent-browser -->
+LANTransfer dist mock 烟测的两个坑（本次实测补充 agent-browser 卡死的有效解法）：(1) `npm run build` 会重新生成带 hash 的 dist/assets，旧 mock 页面引用旧 hash 文件会 404 → 白屏；重建后必须用最新 dist/index.html 重新生成 mock 页并重启静态 http.server（用 curl 确认 assets 200）。(2) agent-browser 会话可能卡死：`open` 打印成功 URL 但 location.href 停在 about:blank、outerHTML 只剩空壳 `<html><head></head><body></body></html>`、scripts:0、window.services 缺失；即使 curl 验证 assets 返回 200、http.server 日志显示页面及全部资源加载成功，同一会话名反复 close+open 也不恢复——实测换一个全新会话名（如 mock2 → uicheck）重新 open 立即恢复。排查页面代码之前先 `eval "location.href"` + 读 outerHTML 确认会话是否卡死，别把工具卡死误判成前端问题。
+

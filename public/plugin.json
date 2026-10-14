@@ -1,0 +1,60 @@
+{
+  "name": "局域网传输",
+  "version": "0.1.0",
+  "main": "index.html",
+  "logo": "logo.png",
+  "preload": "preload.js",
+  "pluginSetting": {
+    "height": 640
+  },
+  "features": [
+    {
+      "code": "main",
+      "description": "局域网内分享文件、文字与剪贴板",
+      "cmds": [
+        "局域网传输",
+        "局域网分享",
+        "lan transfer"
+      ],
+      "explain": "局域网内分享文件、文字与剪贴板"
+    },
+    {
+      "code": "share-files",
+      "description": "把选中的文件分享给局域网内的设备",
+      "mainHide": true,
+      "cmds": [
+        {
+          "type": "files",
+          "label": "局域网分享文件"
+        }
+      ],
+      "explain": "把选中的文件分享给局域网内的设备"
+    },
+    {
+      "code": "share-img",
+      "description": "把图片发送到局域网共享剪贴板",
+      "mainHide": true,
+      "cmds": [
+        {
+          "type": "img",
+          "label": "局域网共享图片"
+        }
+      ],
+      "explain": "把图片发送到局域网共享剪贴板"
+    },
+    {
+      "code": "share-text",
+      "description": "把文字发送到局域网共享剪贴板",
+      "mainHide": true,
+      "cmds": [
+        {
+          "type": "over",
+          "label": "局域网共享文字",
+          "minLength": 1,
+          "maxLength": 5000
+        }
+      ],
+      "explain": "把文字发送到局域网共享剪贴板"
+    }
+  ]
+}
