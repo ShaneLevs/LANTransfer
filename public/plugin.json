@@ -1,6 +1,6 @@
 {
-  "name": "局域网传输",
-  "version": "0.1.0",
+  "name": "共享桌面",
+  "version": "0.3.0",
   "main": "index.html",
   "logo": "logo.png",
   "preload": "preload.js",
@@ -10,29 +10,30 @@
   "features": [
     {
       "code": "main",
-      "description": "局域网内分享文件、文字与剪贴板",
+      "description": "局域网共享桌面：文字、图片、文件放到同一块桌面上，随意拖拽摆放",
       "cmds": [
         "局域网传输",
+        "共享桌面",
         "局域网分享",
         "lan transfer"
       ],
-      "explain": "局域网内分享文件、文字与剪贴板"
+      "explain": "局域网共享桌面：文字、图片、文件放到同一块桌面上，随意拖拽摆放"
     },
     {
       "code": "share-files",
-      "description": "把选中的文件分享给局域网内的设备",
+      "description": "把选中的文件放到局域网共享桌面",
       "mainHide": true,
       "cmds": [
         {
           "type": "files",
-          "label": "局域网分享文件"
+          "label": "局域网共享文件"
         }
       ],
-      "explain": "把选中的文件分享给局域网内的设备"
+      "explain": "把选中的文件放到局域网共享桌面"
     },
     {
       "code": "share-img",
-      "description": "把图片发送到局域网共享剪贴板",
+      "description": "把图片放到局域网共享桌面",
       "mainHide": true,
       "cmds": [
         {
@@ -40,11 +41,11 @@
           "label": "局域网共享图片"
         }
       ],
-      "explain": "把图片发送到局域网共享剪贴板"
+      "explain": "把图片放到局域网共享桌面"
     },
     {
       "code": "share-text",
-      "description": "把文字发送到局域网共享剪贴板",
+      "description": "把文字放到局域网共享桌面",
       "mainHide": true,
       "cmds": [
         {
@@ -54,7 +55,7 @@
           "maxLength": 5000
         }
       ],
-      "explain": "把文字发送到局域网共享剪贴板"
+      "explain": "把文字放到局域网共享桌面"
     }
   ]
 }

@@ -4,3 +4,12 @@ LANTransfer（uTools 插件，/Users/shanelevs/Documents/GitHub/LANTransfer）�
 <!-- mid: 20261014-cf22 | t: 2026-10-14 14:40:20 | p: LANTransfer | src: auto | tags: lantransfer,testing,verification,preload,mock -->
 验证方式补充（在"集成测试跑 dist/lib + mock.html 烟测"之外新增）：dist/preload.js 可脱离 uTools 在纯 Node 里全链路测试——伪造 globalThis.utools（getPluginLocalDataPath/getPath/showOpenDialog/shell*/onPluginEnter 等）+ 劫持 Module._load 让 require("electron") 返回假 clipboard，然后直接 require dist/preload.js，对 window.services 做全套断言（启停服务、上传、匹配入口 over/files/img、改端口自动重启等 34 项，并含"无 electron 环境"降级场景：删 require.cache 后重新加载验证 services 仍存在且给出可读错误）。改 preload/bridge 后跑这套即可回归，无需 uTools 真机。
 
+<!-- mid: 20261015-481f | t: 2026-10-15 16:12:48 | p: LANTransfer | src: auto | tags: lantransfer,shared-desktop,simplify,compatibility,handoff -->
+In the LANTransfer repo, the plugin is intentionally reduced to a single “shared desktop” product. The web UI has no file/upload/download tabs, and `POST /api/upload` is removed; all new items—text, images, and files—are created in the `clipboard` scope. Legacy `shared` and `upload` scopes are kept only so old data can still be located/cleaned, but `/api/state` filters to `clipboard` and canvas move/download paths guard against non-desktop scopes.
+
+<!-- mid: 20261015-5b19 | t: 2026-10-15 16:31:52 | p: LANTransfer | src: auto | tags: #lantransfer #naming #ui-copy #clipboard-scope #compatibility -->
+LANTransfer’s public product name is “共享画布”: UI/plugin.json/web title use 共享画布, but internal data scope `clipboard` and existing API paths should stay unchanged for old-data compatibility. On the web client, set `document.title` dynamically only after `state.user` arrives (fallback to static “共享画布”) to avoid flashing “主机”.
+
+<!-- mid: 20261015-67a1 | t: 2026-10-15 16:31:52 | p: LANTransfer | src: auto | tags: #lantransfer #attribution #host #uploads #clientMeta #lan -->
+In LANTransfer, uploads made from the host machine’s own browser are credited to the login user (`hostUser`) by detecting loopback or local NIC IPs with `server.clientMeta(req)` using `req.socket.remoteAddress` (strip `::ffff:`) and `listIps()`; genuine remote devices are shown as 访客 plus IP. Do not rely on X-Forwarded headers for local attribution.
+

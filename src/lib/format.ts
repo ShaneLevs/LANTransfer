@@ -1,3 +1,17 @@
+import type { ItemKind, TransferItem } from "@/types";
+
+export const KIND_LABEL: Record<ItemKind, string> = {
+  text: "文字",
+  image: "图片",
+  file: "文件",
+};
+
+/** 上传人显示名：本机条目是登录用户名，网页端访客自报昵称，没填昵称的按访客算 */
+export function ownerName(item: TransferItem): string {
+  if (item.from) return item.from;
+  return item.ip ? "访客" : "本机";
+}
+
 export function formatBytes(size: number): string {
   if (!Number.isFinite(size) || size <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];

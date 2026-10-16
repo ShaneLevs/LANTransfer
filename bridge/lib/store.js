@@ -26,6 +26,19 @@ const DEFAULT_SETTINGS = {
 
 const MAX_CLIPBOARD_ITEMS = 300;
 const MAX_PREVIEW_LENGTH = 2000;
+const MAX_CANVAS_COORD = 100000;
+// 共享桌面桌面的默认网格布局（与网页端 DesktopCanvas 保持一致）
+const CANVAS_COLS = 5;
+const CANVAS_GAP_X = 300;
+const CANVAS_GAP_Y = 220;
+const CANVAS_ORIGIN = 60;
+
+/** 桌面坐标限制在有限数且不超出范围，非法值回原点 */
+function clampCoord(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(-MAX_CANVAS_COORD, Math.min(MAX_CANVAS_COORD, Math.round(num)));
+}
 
 function normalizeSettings(input, defaults) {
   const raw = input && typeof input === "object" ? input : {};
@@ -90,7 +103,7 @@ class Store {
     writeJsonAtomic(this.stateFile, { settings: this.settings, items: this.items });
   }
 
-  /** 接收目录下的三个子目录 */
+  /** 存储目录下的子目录（shared / uploads 仅用于旧数据） */
   dirFor(scope) {
     const folder = scope === "shared" ? "shared" : scope === "upload" ? "uploads" : "clipboard";
     return path.join(this.settings.recvDir, folder);
@@ -132,14 +145,40 @@ class Store {
       size: Number.isFinite(item.size) ? item.size : 0,
       time: Date.now(),
       from: item.from || "",
+      ip: item.ip || "",
     };
     if (item.kind === "text") {
       entry.preview = String(item.text || "").slice(0, MAX_PREVIEW_LENGTH);
+    }
+    if (Number.isFinite(item.x) && Number.isFinite(item.y)) {
+      entry.x = clampCoord(item.x);
+      entry.y = clampCoord(item.y);
+    } else if (entry.scope === "clipboard") {
+      const pos = this.freeCanvasPos();
+      entry.x = pos.x;
+      entry.y = pos.y;
     }
     this.items.unshift(entry);
     this.prune();
     this.save();
     return entry;
+  }
+
+  /** 找一个还没被占用的网格位置，新条目上桌面时不会叠在一起 */
+  freeCanvasPos() {
+    const occupied = new Set(
+      this.items
+        .filter((item) => item.scope === "clipboard")
+        .map((item) => `${item.x},${item.y}`)
+    );
+    for (let index = 0; index < CANVAS_COLS * 200; index += 1) {
+      const pos = {
+        x: CANVAS_ORIGIN + (index % CANVAS_COLS) * CANVAS_GAP_X,
+        y: CANVAS_ORIGIN + Math.floor(index / CANVAS_COLS) * CANVAS_GAP_Y,
+      };
+      if (!occupied.has(`${pos.x},${pos.y}`)) return pos;
+    }
+    return { x: CANVAS_ORIGIN, y: CANVAS_ORIGIN };
   }
 
   get(id) {
@@ -148,6 +187,16 @@ class Store {
 
   byScope(scope) {
     return this.items.filter((item) => item.scope === scope);
+  }
+
+  /** 更新条目在共享桌面桌面上的坐标 */
+  moveItem(id, x, y) {
+    const item = this.get(id);
+    if (!item || item.scope !== "clipboard") return null;
+    item.x = clampCoord(x);
+    item.y = clampCoord(y);
+    this.save();
+    return item;
   }
 
   /** 删除记录，返回被删除的条目（文件由调用方处理） */
@@ -166,7 +215,7 @@ class Store {
     return removed;
   }
 
-  /** 清理超过保留期的剪贴板记录与超出上限的旧记录，并删除对应文件 */
+  /** 清理超过保留期的共享桌面条目与超出上限的旧记录，并删除对应文件 */
   prune() {
     const removed = [];
     const deadline = Date.now() - this.settings.retentionDays * 24 * 60 * 60 * 1000;
@@ -194,12 +243,13 @@ class Store {
     return removed;
   }
 
-  /** 落盘一个文本剪贴板条目 */
-  addText(text, from) {
+  /** 落盘一条共享桌面文本；meta = { from: 用户名, ip: 来源地址 } */
+  addText(text, meta) {
     const content = String(text == null ? "" : text);
     if (!content.trim()) {
       throw new Error("文本内容为空");
     }
+    const info = meta || {};
     const target = this.allocFile("clipboard", `text-${timestamp()}.txt`, "text.txt");
     fs.writeFileSync(target.file, content, "utf8");
     return this.register({
@@ -208,13 +258,15 @@ class Store {
       name: target.name,
       file: target.file,
       size: Buffer.byteLength(content, "utf8"),
-      from,
+      from: info.from,
+      ip: info.ip,
       text: content,
     });
   }
 
-  /** 把本机文件复制进接收目录，返回新条目 */
-  copyIn(scope, kind, sourcePath, from) {
+  /** 把本机文件复制进存储目录，返回新条目 */
+  copyIn(scope, kind, sourcePath, meta) {
+    const info = meta || {};
     const target = this.allocFile(scope, path.basename(sourcePath));
     fs.copyFileSync(sourcePath, target.file);
     const stat = fs.statSync(target.file);
@@ -224,11 +276,12 @@ class Store {
       name: target.name,
       file: target.file,
       size: stat.size,
-      from,
+      from: info.from,
+      ip: info.ip,
     });
   }
 
-  /** 接收客户端上传：返回 { file, name }，由调用方写入流 */
+  /** 接收网页端放上桌面的文件：返回 { file, name }，由调用方写入流 */
   allocUpload(scope, rawName, kind) {
     const fallback = kind === "image" ? "image.png" : "file";
     return this.allocFile(scope, rawName, fallback);
@@ -244,4 +297,4 @@ class Store {
   }
 }
 
-module.exports = { Store, DEFAULT_SETTINGS, MAX_CLIPBOARD_ITEMS, normalizeSettings };
+module.exports = { Store, DEFAULT_SETTINGS, MAX_CLIPBOARD_ITEMS, normalizeSettings, clampCoord };

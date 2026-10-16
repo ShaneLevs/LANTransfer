@@ -1,20 +1,29 @@
-import { useCallback, useEffect, useState } from "react";
-import { ClipboardPanel } from "@lan/components/ClipboardPanel";
-import { FilesPanel } from "@lan/components/FilesPanel";
-import { UploadPanel } from "@lan/components/UploadPanel";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { CardStandalone } from "@lan/components/CardDetail";
+import { DesktopCanvas } from "@lan/components/DesktopCanvas";
+import { DesktopPanel } from "@lan/components/DesktopPanel";
+import { GuestNameDialog } from "@lan/components/GuestNameDialog";
 import { fetchState, subscribe } from "@lan/lib/api";
+import { getGuestName } from "@lan/lib/guest";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Toaster } from "@/components/ui/sonner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useIsDark } from "@/lib/theme";
-import { AlertCircle, ArrowDownToLine, ClipboardPaste, Loader2, Upload } from "lucide-react";
+import { AlertCircle, Loader2, UserRound } from "lucide-react";
 import type { LanClientState } from "@/types";
 
-const TAB_ITEMS = [
-  { value: "files", label: "文件", icon: ArrowDownToLine },
-  { value: "upload", label: "上传", icon: Upload },
-  { value: "clipboard", label: "剪贴板", icon: ClipboardPaste },
-] as const;
+/** 电脑浏览器 = 可随意拖排的桌面；手机 / 平板 = 列表 */
+const CANVAS_QUERY = "(min-width: 768px) and (pointer: fine)";
+
+function usePrefersCanvas() {
+  const [prefers, setPrefers] = useState(() => window.matchMedia(CANVAS_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(CANVAS_QUERY);
+    const onChange = () => setPrefers(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return prefers;
+}
 
 export default function App() {
   const dark = useIsDark();
@@ -22,6 +31,11 @@ export default function App() {
   const [online, setOnline] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  // 访客昵称：没有时首次弹一次引导；点 header 名字可再改
+  const [guest, setGuest] = useState(() => getGuestName());
+  const [nameDialogOpen, setNameDialogOpen] = useState(() => !getGuestName());
+  // ?card=<id> 是单卡片分享链接，只展示那一条内容
+  const cardId = useMemo(() => new URLSearchParams(window.location.search).get("card"), []);
 
   const refresh = useCallback(async () => {
     try {
@@ -40,80 +54,87 @@ export default function App() {
     return subscribe({ onChanged: () => void refresh(), onStatus: setOnline });
   }, [refresh]);
 
+  const user = state?.user || "主机";
   const items = state?.items ?? [];
-  const shared = items.filter((item) => item.scope === "shared");
-  const clips = items.filter((item) => item.scope === "clipboard");
-  const host = state?.host || "主机";
-  const [tab, setTab] = useState<string>("files");
-  const counts: Record<string, number> = { files: shared.length, clipboard: clips.length };
+  const prefersCanvas = usePrefersCanvas();
+  const shared = cardId ? items.find((item) => item.id === cardId) ?? null : null;
+
+  // 浏览器标签页标题也带上主机用户名
+  useEffect(() => {
+    if (state?.user) document.title = `${state.user} 的共享桌面`;
+  }, [state?.user]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-10 border-b border-border/60 bg-background/70 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-4xl items-center gap-2 px-4 py-3 sm:px-6">
-          <span className="truncate text-sm font-semibold">{host} 的局域网传输</span>
-          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-            <span
-              className={
-                "size-2 rounded-full " + (online ? "bg-emerald-500" : "bg-amber-500")
-              }
-            />
-            {online ? "已连接" : "重连中"}
-          </span>
-        </div>
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
+      <header className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-background/70 px-3 py-2.5 backdrop-blur-xl sm:px-4">
+        <span className="min-w-0 truncate text-sm font-semibold">{user} 的共享桌面</span>
+        <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+          <span className={"size-2 rounded-full " + (online ? "bg-emerald-500" : "bg-amber-500")} />
+          {online ? "已连接" : "重连中"}
+        </span>
+        {!cardId && items.length ? (
+          <span className="ml-auto shrink-0 text-xs text-muted-foreground">{items.length} 项</span>
+        ) : null}
+        {!cardId ? (
+          <button
+            type="button"
+            title={guest ? "点击修改昵称" : "设置昵称，放上桌面的内容会署你的名"}
+            onClick={() => setNameDialogOpen(true)}
+            className={
+              "ml-auto flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-xs transition-colors hover:bg-accent " +
+              (guest ? "text-muted-foreground" : "border-primary/40 text-primary")
+            }
+          >
+            <UserRound className="size-3.5" />
+            {guest || "设昵称"}
+          </button>
+        ) : null}
       </header>
 
-      <main className="mx-auto w-full max-w-4xl px-4 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-6">
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            正在连接…
-          </div>
-        ) : error && !state ? (
+      <GuestNameDialog
+        open={nameDialogOpen}
+        onOpenChange={setNameDialogOpen}
+        onSaved={setGuest}
+        dismissable={Boolean(guest)}
+      />
+
+      {loading ? (
+        <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          正在连接…
+        </div>
+      ) : error && !state ? (
+        <div className="p-4">
           <Alert variant="destructive">
             <AlertCircle />
             <AlertTitle>无法连接这台电脑</AlertTitle>
             <AlertDescription>{error}，请确认服务仍在运行。</AlertDescription>
           </Alert>
-        ) : (
-          <Tabs value={tab} onValueChange={setTab}>
-            <TabsContent value="files" className="mt-0">
-              <FilesPanel items={shared} host={host} />
-            </TabsContent>
-            <TabsContent value="upload" className="mt-0">
-              <UploadPanel />
-            </TabsContent>
-            <TabsContent value="clipboard" className="mt-0">
-              <ClipboardPanel items={clips} />
-            </TabsContent>
-          </Tabs>
-        )}
-      </main>
-
-      {/* 底部导航：移动端贴底悬浮，桌面端居中悬浮条，均带高斯模糊 */}
-      {state ? (
-        <nav className="fixed inset-x-0 bottom-0 z-20 pb-[env(safe-area-inset-bottom)]">
-          <div className="mx-auto w-full max-w-4xl px-3 pb-3 sm:px-6 sm:pb-4">
-            <Tabs value={tab} onValueChange={setTab}>
-              <TabsList className="mx-auto !h-[50px] flex w-full max-w-md rounded-full bg-background/70 p-1.5 shadow-lg shadow-black/5 backdrop-blur-xl group-data-horizontal/tabs:h-[50px]">
-                {TAB_ITEMS.map(({ value, label, icon: Icon }) => (
-                  <TabsTrigger
-                    key={value}
-                    value={value}
-                    className="h-full flex-row gap-1.5 rounded-full border-0 px-4 text-sm shadow-none after:hidden data-active:border-0 data-active:bg-muted data-active:shadow-none dark:data-active:border-0 dark:data-active:bg-muted/60 dark:data-active:shadow-none"
-                  >
-                    <Icon className="size-4.5" />
-                    <span>{label}</span>
-                    {counts[value] ? (
-                      <span className="text-xs text-muted-foreground">{counts[value]}</span>
-                    ) : null}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
+        </div>
+      ) : cardId ? (
+        <main className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="mx-auto w-full max-w-2xl">
+            {shared ? (
+              <CardStandalone item={shared} />
+            ) : (
+              <Alert>
+                <AlertTitle>这张卡片不存在</AlertTitle>
+                <AlertDescription>可能已被删除或超过了保留天数。</AlertDescription>
+              </Alert>
+            )}
           </div>
-        </nav>
-      ) : null}
+        </main>
+      ) : prefersCanvas ? (
+        <main className="min-h-0 flex-1 p-2 sm:p-3">
+          <DesktopCanvas items={items} />
+        </main>
+      ) : (
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-6">
+          <div className="mx-auto w-full max-w-2xl">
+            <DesktopPanel items={items} />
+          </div>
+        </main>
+      )}
 
       <Toaster theme={dark ? "dark" : "light"} position="top-center" />
     </div>

@@ -114,6 +114,24 @@ function pickDisplayIp(bindIp) {
   return ips.length ? ips[0].address : "127.0.0.1";
 }
 
+/** 主机登录用户名（界面用它表示“谁的桌面”，比电脑名直观） */
+function hostUser() {
+  try {
+    return os.userInfo().username || os.hostname();
+  } catch {
+    return os.hostname();
+  }
+}
+
+/** 访客自报的昵称：清洗并限长，空值返回空串（继续按"访客"显示） */
+function guestName(raw) {
+  const name = String(raw == null ? "" : raw)
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim()
+    .slice(0, 24);
+  return name;
+}
+
 function readJsonSafe(filePath, fallback) {
   try {
     const raw = fs.readFileSync(filePath, "utf8");
@@ -167,6 +185,8 @@ function readJsonBody(req, limit) {
 
 module.exports = {
   contentType,
+  guestName,
+  hostUser,
   isInside,
   listIps,
   pickDisplayIp,

@@ -55,7 +55,7 @@ export function ServerPanel({ state }: { state: AppState }) {
     }
     const days = Number(retentionDays);
     if (!Number.isInteger(days) || days < 1 || days > 365) {
-      toast.error("剪贴板保留天数需要是 1 - 365 之间的整数");
+      toast.error("共享桌面保留天数需要是 1 - 365 之间的整数");
       return;
     }
     run(
@@ -77,7 +77,7 @@ export function ServerPanel({ state }: { state: AppState }) {
             )}
           </CardTitle>
           <CardDescription>
-            局域网内的设备打开下面的地址，就能上传文件、下载你分享的文件、一起共享剪贴板。
+            局域网内的设备打开下面的地址，就能一起使用这块共享桌面（电脑端可随意拖拽缩放，手机上是列表）。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -168,7 +168,7 @@ export function ServerPanel({ state }: { state: AppState }) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="retention">剪贴板保留天数</Label>
+              <Label htmlFor="retention">共享桌面保留天数</Label>
               <Input
                 id="retention"
                 inputMode="numeric"
@@ -181,12 +181,12 @@ export function ServerPanel({ state }: { state: AppState }) {
           <Separator />
 
           <div className="space-y-2">
-            <Label>接收目录</Label>
+            <Label>存储目录</Label>
             <div className="flex flex-wrap items-center gap-2">
               <code className="min-w-0 flex-1 truncate rounded-md bg-muted/60 px-3 py-2 font-mono text-xs">
                 {settings.recvDir}
               </code>
-              <Button variant="outline" size="sm" onClick={() => run(() => window.services!.pickRecvDir(), "接收目录已更新")}>
+              <Button variant="outline" size="sm" onClick={() => run(() => window.services!.pickRecvDir(), "存储目录已更新")}>
                 <FolderOpen />
                 选择目录
               </Button>
@@ -195,7 +195,7 @@ export function ServerPanel({ state }: { state: AppState }) {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              分享的文件、收到的上传、剪切板内容分别保存在 shared、uploads、clipboard 子目录中。
+              桌面上的文字、图片与文件都保存在这里的 clipboard 子目录（旧版本的 shared、uploads 子目录仍保留在磁盘上，可自行清理）。
             </p>
           </div>
 

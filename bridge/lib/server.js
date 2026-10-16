@@ -5,7 +5,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 
-const { contentType, isInside, pickDisplayIp, readJsonBody } = require("./util.js");
+const { contentType, guestName, hostUser, isInside, listIps, pickDisplayIp, readJsonBody } = require("./util.js");
 
 const MAX_TEXT_BYTES = 1024 * 1024;
 const KEEP_ALIVE_MS = 25000;
@@ -25,7 +25,14 @@ const INLINE_SAFE = new Set([
   "video/webm",
 ]);
 
-/** 局域网 HTTP 服务：托管网页端界面，并提供剪贴板、上传、下载接口 */
+/** 读取坐标：缺省或非法返回 null（注意 Number(null) === 0、Number(undefined) === NaN） */
+function toCoord(raw) {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : null;
+}
+
+/** 局域网 HTTP 服务：托管网页端界面，并提供共享桌面、上传、下载接口 */
 class LanServer {
   /**
    * @param {{ store: import('./store.js').Store, rootDir: string, lanDir: string, onState?: () => void }} options
@@ -185,8 +192,11 @@ class LanServer {
 
   clientState() {
     return {
-      host: os.hostname(),
-      items: this.store.items.filter((item) => item.scope !== "upload").map((item) => this.publicItem(item)),
+      user: hostUser(),
+      // 网页端只展示共享桌面（旧版本的 shared / upload 条目不下发）
+      items: this.store.items
+        .filter((item) => item.scope === "clipboard")
+        .map((item) => this.publicItem(item)),
       now: Date.now(),
     };
   }
@@ -222,15 +232,15 @@ class LanServer {
         return;
       }
       if (pathname === "/api/clipboard/file" && req.method === "POST") {
-        this.handleUpload(req, res, "clipboard", url.searchParams);
-        return;
-      }
-      if (pathname === "/api/upload" && req.method === "POST") {
-        this.handleUpload(req, res, "upload", url.searchParams);
+        this.handleDesktopFile(req, res, url.searchParams);
         return;
       }
       if (pathname.startsWith("/api/file/")) {
         this.handleDownload(req, res, pathname.slice("/api/file/".length), url.searchParams.get("inline") === "1");
+        return;
+      }
+      if (pathname === "/api/clipboard/move" && req.method === "POST") {
+        this.handleMove(req, res);
         return;
       }
       if (pathname === "/favicon.ico") {
@@ -257,6 +267,28 @@ class LanServer {
     });
   }
 
+  /** 拖动共享桌面上的卡片后保存坐标 */
+  async handleMove(req, res) {
+    try {
+      const body = await readJsonBody(req, 4096);
+      const x = toCoord(body.x);
+      const y = toCoord(body.y);
+      if (x === null || y === null) {
+        this.sendJson(res, 400, { error: "坐标不合法" });
+        return;
+      }
+      const item = this.store.moveItem(String(body.id || ""), x, y);
+      if (!item) {
+        this.sendJson(res, 404, { error: "内容不存在或已被清理" });
+        return;
+      }
+      this.afterChange();
+      this.sendJson(res, 200, { ok: true, item: this.publicItem(item) });
+    } catch (error) {
+      this.sendJson(res, 400, { error: error.message || "移动失败" });
+    }
+  }
+
   async handleText(req, res) {
     try {
       const body = await readJsonBody(req, MAX_TEXT_BYTES);
@@ -265,7 +297,12 @@ class LanServer {
         this.sendJson(res, 400, { error: "文本内容不能为空" });
         return;
       }
-      const item = this.store.addText(text, this.clientIp(req));
+      const item = this.store.addText(text, this.clientMeta(req, body.from));
+      const x = toCoord(body.x);
+      const y = toCoord(body.y);
+      if (x !== null && y !== null) {
+        this.store.moveItem(item.id, x, y);
+      }
       this.afterChange();
       this.sendJson(res, 200, { ok: true, item: this.publicItem(item) });
     } catch (error) {
@@ -273,11 +310,12 @@ class LanServer {
     }
   }
 
-  handleUpload(req, res, scope, params) {
+  /** 接收网页端放上桌面的文件（可带桌面坐标） */
+  handleDesktopFile(req, res, params) {
     const kind = params.get("kind") === "image" ? "image" : "file";
     let target;
     try {
-      target = this.store.allocUpload(scope, params.get("name") || "", kind);
+      target = this.store.allocUpload("clipboard", params.get("name") || "", kind);
     } catch (error) {
       this.sendJson(res, 400, { error: error.message || "文件名不合法" });
       return;
@@ -304,14 +342,19 @@ class LanServer {
       settled = true;
       const size = stream.bytesWritten;
       const item = this.store.register({
-        scope,
+        scope: "clipboard",
         kind,
         name: target.name,
         file: target.file,
         size,
-        from: this.clientIp(req),
+        ...this.clientMeta(req, params.get("from")),
       });
-      this.afterChange(scope !== "upload");
+      const x = toCoord(params.get("x"));
+      const y = toCoord(params.get("y"));
+      if (x !== null && y !== null) {
+        this.store.moveItem(item.id, x, y);
+      }
+      this.afterChange();
       this.sendJson(res, 200, { ok: true, item: this.publicItem(item) });
     });
     req.pipe(stream);
@@ -389,6 +432,17 @@ class LanServer {
   clientIp(req) {
     const address = req.socket.remoteAddress || "";
     return address.replace(/^::ffff:/, "");
+  }
+
+  /**
+   * 请求来源信息：本机自己（回环或本网卡地址）访问时署名为登录用户，
+   * 其它设备用访客自报的昵称（没有就留空，界面按"访客"显示）。
+   */
+  clientMeta(req, guest) {
+    const ip = this.clientIp(req);
+    const local =
+      ip === "127.0.0.1" || ip === "::1" || listIps().some((entry) => entry.address === ip);
+    return { ip, from: local ? hostUser() : guestName(guest) };
   }
 
   afterChange(notifyClients = true) {

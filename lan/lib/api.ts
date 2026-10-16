@@ -1,6 +1,14 @@
 import type { LanClientState } from "@/types";
+import { getGuestName } from "@lan/lib/guest";
 
 const jsonHeaders = { "Content-Type": "application/json" };
+
+/** 访客昵称参数：有昵称就带上，服务端记入卡片署名 */
+function guestParams(params: URLSearchParams): URLSearchParams {
+  const name = getGuestName();
+  if (name) params.set("from", name);
+  return params;
+}
 
 async function parseError(response: Response): Promise<string> {
   try {
@@ -29,11 +37,12 @@ export function subscribe(handlers: {
   return () => source.close();
 }
 
-export function sendText(text: string): Promise<void> {
+export function sendText(text: string, pos?: { x: number; y: number }): Promise<void> {
+  const body = JSON.stringify({ text, from: getGuestName(), ...(pos ? { x: pos.x, y: pos.y } : {}) });
   return fetch("/api/clipboard/text", {
     method: "POST",
     headers: jsonHeaders,
-    body: JSON.stringify({ text }),
+    body,
   }).then(async (response) => {
     if (!response.ok) throw new Error(await parseError(response));
   });
@@ -45,20 +54,34 @@ export async function fetchText(id: string): Promise<string> {
   return response.text();
 }
 
+/** 共享桌面桌面上拖动卡片后保存坐标 */
+export async function moveItem(id: string, x: number, y: number): Promise<void> {
+  const response = await fetch("/api/clipboard/move", {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({ id, x, y }),
+  });
+  if (!response.ok) throw new Error(await parseError(response));
+}
+
+/** 把文件放到共享桌面（图片/普通文件都行） */
 export function uploadFile(
   file: File,
   options: {
     kind: "file" | "image";
-    toClipboard: boolean;
+    pos?: { x: number; y: number };
     onProgress?: (progress: number) => void;
   }
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const params = new URLSearchParams({ name: file.name || "file" });
+    const params = guestParams(new URLSearchParams({ name: file.name || "file" }));
     if (options.kind === "image") params.set("kind", "image");
-    const endpoint = options.toClipboard ? "/api/clipboard/file" : "/api/upload";
+    if (options.pos) {
+      params.set("x", String(Math.round(options.pos.x)));
+      params.set("y", String(Math.round(options.pos.y)));
+    }
     const request = new XMLHttpRequest();
-    request.open("POST", `${endpoint}?${params.toString()}`);
+    request.open("POST", `/api/clipboard/file?${params.toString()}`);
     request.setRequestHeader("Content-Type", "application/octet-stream");
     request.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) options.onProgress?.(event.loaded / event.total);

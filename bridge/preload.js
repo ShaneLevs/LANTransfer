@@ -5,16 +5,7 @@ const path = require("node:path");
 
 const { Store } = require("./lib/store.js");
 const { LanServer } = require("./lib/server.js");
-const { contentType, listIps, pickDisplayIp, timestamp } = require("./lib/util.js");
-
-// 读取系统剪贴板依赖 electron 的 clipboard：环境不提供时只影响「分享系统剪贴板」，
-// 不能让它把整个 preload 打断（preload 中断会导致 window.services 缺失）
-let systemClipboard = null;
-try {
-  systemClipboard = require("electron").clipboard;
-} catch (error) {
-  console.error("[LANTransfer] 无法加载系统剪贴板能力", error);
-}
+const { contentType, hostUser, listIps, pickDisplayIp, timestamp } = require("./lib/util.js");
 
 const ROOT_DIR = __dirname;
 const LAN_DIR = path.join(ROOT_DIR, "lan");
@@ -50,6 +41,7 @@ function snapshot() {
     settings: { ...store.settings },
     ips: listIps(),
     displayIp: pickDisplayIp(store.settings.bindIp),
+    user: hostUser(),
     status: server ? server.snapshot() : { running: false, error: "", url: "" },
     items: store.items,
     dataDir: store.dataDir,
@@ -74,8 +66,13 @@ function afterShare(notifyClients) {
   }
 }
 
-/** 保存图片二进制到剪贴板目录 */
-function saveImageBuffer(buffer, ext, from) {
+/** 本机条目的署名：登录用户名 + 本机对内 IP */
+function localMeta() {
+  return { from: hostUser(), ip: pickDisplayIp(store.settings.bindIp) };
+}
+
+/** 保存图片二进制到桌面目录 */
+function saveImageBuffer(buffer, ext) {
   const target = store.allocFile("clipboard", `image-${timestamp()}.${ext}`, "image.png");
   fs.writeFileSync(target.file, buffer);
   return store.register({
@@ -84,18 +81,21 @@ function saveImageBuffer(buffer, ext, from) {
     name: target.name,
     file: target.file,
     size: buffer.length,
-    from,
+    ...localMeta(),
   });
 }
 
-function addText(text, from) {
-  const item = store.addText(text, from);
+function addText(text, pos) {
+  const item = store.addText(text, localMeta());
+  if (pos) {
+    store.moveItem(item.id, pos.x, pos.y);
+  }
   afterShare(true);
   return item;
 }
 
-/** 把本机文件复制进接收目录并分享 */
-function sharePaths(paths, scope) {
+/** 把本机文件复制进存储目录并放到共享桌面 */
+function sharePaths(paths, scope, pos) {
   const files = [];
   const skipped = [];
   for (const raw of paths || []) {
@@ -114,10 +114,11 @@ function sharePaths(paths, scope) {
     files.push(raw);
   }
   if (!files.length) {
-    throw new Error("没有可分享的文件（暂不支持分享文件夹）");
+    throw new Error("没有可放到桌面的文件（暂不支持文件夹）");
   }
   for (const file of files) {
-    store.copyIn(scope, imageKind(file), file, "本机");
+    const entry = store.copyIn(scope, imageKind(file), file, localMeta());
+    if (pos) store.moveItem(entry.id, pos.x, pos.y);
   }
   afterShare(true);
   return { count: files.length, skipped: skipped.length };
@@ -135,41 +136,6 @@ async function pickFiles(scope, title) {
     return { count: 0, skipped: 0 };
   }
   return sharePaths(picked, scope);
-}
-
-/** 读取系统剪贴板内容并分享到局域网剪贴板 */
-function shareSystemClipboard() {
-  const copiedFiles = utools.getCopiedFiles();
-  if (Array.isArray(copiedFiles) && copiedFiles.length) {
-    try {
-      const result = sharePaths(
-        copiedFiles.filter((file) => file.isFile).map((file) => file.path),
-        "clipboard"
-      );
-      if (result.count > 0) return { kind: "file", count: result.count };
-    } catch {
-      /* 裁剪板里只有文件夹时继续尝试图片与文本 */
-    }
-  }
-
-  const image = systemClipboard ? systemClipboard.readImage() : null;
-  if (image && !image.isEmpty()) {
-    const buffer = image.toPNG();
-    saveImageBuffer(buffer, "png", "本机");
-    afterShare(true);
-    return { kind: "image", count: 1 };
-  }
-
-  const text = systemClipboard ? systemClipboard.readText() : "";
-  if (text && text.trim()) {
-    addText(text, "本机");
-    return { kind: "text", count: 1 };
-  }
-
-  if (!systemClipboard) {
-    throw new Error("当前环境不支持读取系统剪贴板，请改用「选择文件分享」或直接粘贴文本");
-  }
-  throw new Error("系统剪贴板中没有可分享的文字、图片或文件");
 }
 
 async function removeItem(id) {
@@ -193,7 +159,7 @@ async function clearScope(scope) {
       store.removeFile(item);
     }
   }
-  afterShare(scope !== "upload");
+  afterShare(true);
 }
 
 const services = {
@@ -229,7 +195,7 @@ const services = {
   async pickRecvDir() {
     const picked = await resolveResult(
       utools.showOpenDialog({
-        title: "选择接收目录",
+        title: "选择存储目录",
         defaultPath: store.settings.recvDir,
         properties: ["openDirectory", "createDirectory"],
       })
@@ -242,31 +208,20 @@ const services = {
     return resolveResult(utools.shellOpenPath(store.settings.recvDir)).catch(() => {});
   },
 
-  async shareFiles() {
-    return pickFiles("shared", "选择要分享的文件");
+  async pickDesktopFiles() {
+    return pickFiles("clipboard", "选择要放到共享桌面的文件");
   },
 
-  async shareClipboardFiles() {
-    return pickFiles("clipboard", "选择要发到共享剪贴板的文件");
+  /** 拖拽进来的文件（Electron 下 File.path 可用时） */
+  addDesktopFiles(paths, pos) {
+    return sharePaths(paths, "clipboard", pos);
   },
 
-  shareSystemClipboard,
-
-  addText: (text) => addText(text, "本机"),
+  addText: (text, pos) => addText(text, pos),
 
   removeItem,
 
   clearScope,
-
-  revealItem(id) {
-    const item = store.get(id);
-    if (item) utools.shellShowItemInFolder(item.file);
-  },
-
-  openItem(id) {
-    const item = store.get(id);
-    if (item) resolveResult(utools.shellOpenPath(item.file)).catch(() => {});
-  },
 
   copyText(text) {
     return utools.copyText(String(text == null ? "" : text));
@@ -288,10 +243,25 @@ const services = {
     if (!utools.copyFile(item.file)) throw new Error("复制失败，请重试");
   },
 
+  /** 把条目另存到用户选的位置（插件端的「下载」） */
+  saveItem(id) {
+    const item = store.get(id);
+    if (!item) throw new Error("内容不存在或已被清理");
+    const target = utools.showSaveDialog({
+      title: "保存文件",
+      defaultPath: path.join(utools.getPath("downloads"), item.name),
+      buttonLabel: "保存",
+    });
+    if (!target) return null;
+    fs.copyFileSync(item.file, target);
+    return target;
+  },
+
   /** 主界面粘贴图片时调用（FileReader 读成 data URL 后传入） */
-  addImage(dataUrl) {
+  addImage(dataUrl, pos) {
     const { buffer, ext } = parseDataUrl(dataUrl);
-    const item = saveImageBuffer(buffer, ext, "本机");
+    const item = saveImageBuffer(buffer, ext);
+    if (pos) store.moveItem(item.id, pos.x, pos.y);
     afterShare(true);
     return item;
   },
@@ -332,20 +302,20 @@ const services = {
 function handleMatchEnter(type, payload) {
   if (type === "files" && Array.isArray(payload)) {
     const files = payload.filter((file) => file && file.isFile).map((file) => file.path);
-    const result = sharePaths(files, "shared");
-    utools.showNotification(`已分享 ${result.count} 个文件到局域网`);
+    const result = sharePaths(files, "clipboard");
+    utools.showNotification(`已把 ${result.count} 个文件放到共享桌面`);
     return;
   }
   if (type === "img" && typeof payload === "string") {
     const { buffer, ext } = parseDataUrl(payload);
-    saveImageBuffer(buffer, ext, "本机");
+    saveImageBuffer(buffer, ext);
     afterShare(true);
-    utools.showNotification("图片已发送到共享剪贴板");
+    utools.showNotification("图片已放到共享桌面");
     return;
   }
   if (type === "over" && typeof payload === "string") {
-    addText(payload, "本机");
-    utools.showNotification("文字已发送到共享剪贴板");
+    addText(payload);
+    utools.showNotification("文字已放到共享桌面");
   }
 }
 
@@ -375,7 +345,7 @@ function setup() {
     try {
       handleMatchEnter(type, payload);
     } catch (error) {
-      utools.showNotification(`分享失败：${error.message || error}`);
+      utools.showNotification(`操作失败：${error.message || error}`);
     }
   });
 }

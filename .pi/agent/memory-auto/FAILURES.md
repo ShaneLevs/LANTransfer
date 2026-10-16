@@ -4,3 +4,6 @@ LANTransfer dist mock 烟测的两个坑：(1) `npm run build` 会重新生成�
 <!-- mid: 20261014-6932 | t: 2026-10-14 14:51:00 | p: LANTransfer | src: auto | tags: lantransfer,mock,smoke-test,vite,build,asset-hash,agent-browser -->
 LANTransfer dist mock 烟测的两个坑（本次实测补充 agent-browser 卡死的有效解法）：(1) `npm run build` 会重新生成带 hash 的 dist/assets，旧 mock 页面引用旧 hash 文件会 404 → 白屏；重建后必须用最新 dist/index.html 重新生成 mock 页并重启静态 http.server（用 curl 确认 assets 200）。(2) agent-browser 会话可能卡死：`open` 打印成功 URL 但 location.href 停在 about:blank、outerHTML 只剩空壳 `<html><head></head><body></body></html>`、scripts:0、window.services 缺失；即使 curl 验证 assets 返回 200、http.server 日志显示页面及全部资源加载成功，同一会话名反复 close+open 也不恢复——实测换一个全新会话名（如 mock2 → uicheck）重新 open 立即恢复。排查页面代码之前先 `eval "location.href"` + 读 outerHTML 确认会话是否卡死，别把工具卡死误判成前端问题。
 
+<!-- mid: 20261015-2d5b | t: 2026-10-15 16:12:48 | p: LANTransfer | src: auto | tags: lantransfer,coordinates,upload,canvas,handoff -->
+In LANTransfer, canvas coordinate parsing must be null-safe: do not use `Number(params.get("x"))` for optional query coordinates, because `Number(null)` can become `0` and cause uploads without coordinates to land at canvas origin `(0,0)`. Missing/empty/invalid coordinates should resolve to `null` so the backend can assign a free grid position; invalid `move` coordinates should return HTTP 400.
+
