@@ -13,9 +13,10 @@ const CURSOR_COLORS = [
   "#0891b2", "#db2777", "#65a30d", "#7c3aed", "#0d9488",
 ];
 
-/** 光标键：Map 里用 Symbol，广播时用昵称（同昵称共享一个光标） */
+/** 光标键：Map 里用 Symbol，广播时还原成客户端 id */
 function cursorKey(cid) {
-  return typeof cid === "symbol" ? cid.description || "cursor" : String(cid);
+  const raw = typeof cid === "symbol" ? cid.description || "" : String(cid);
+  return raw.startsWith("cursor:") ? raw.slice("cursor:".length) : raw || "cursor";
 }
 
 const MAX_TEXT_BYTES = 1024 * 1024;
@@ -61,7 +62,7 @@ class LanServer {
     this.clients = new Set();
     this.sockets = new Set();
     this.timer = null;
-    // 在线访客光标：cid -> { name, x, y, at, color }（cid = Symbol(name)，同昵称共享一个光标）
+    // 在线访客光标：Symbol.for(cid) -> { cid, name, x, y, at, color }，同浏览器多标签页共享一个光标
     this.cursors = new Map();
     const { port, bindIp } = store.settings;
     this.status = { running: false, error: "", port, bindIp, url: "", host: "" };
@@ -316,7 +317,7 @@ class LanServer {
   /** 新 SSE 访客接入：把它已在线的访客光标快照发给新访客，中途加入也能立刻看到别人 */
   attachCursorChannel(res) {
     const others = Array.from(this.cursors.values()).map((cursor) => ({
-      cid: cursor.name,
+      cid: cursor.cid,
       name: cursor.name,
       color: cursor.color,
       x: cursor.x,
@@ -346,17 +347,16 @@ class LanServer {
   }
 
   /** 接收网页端上报的光标位置，转发给除上报者外的所有在线访客 */
+  /** 接收网页端上报的光标位置，转发给除上报者外的所有在线访客 */
   async handleCursor(req, res) {
     try {
       const body = await readJsonBody(req, 512);
       const from = guestName(body.from);
       if (body.leave) {
-        // 离开上报没有 cid（HTTP 与 SSE 是两条连接），按昵称移除同署名的光标
-        for (const [cid, cursor] of this.cursors) {
-          if (cursor.name === from) {
-            this.cursors.delete(cid);
-            this.broadcastEvent("cursors", { remove: cursorKey(cid) });
-          }
+        // 离开上报按客户端 id 精确移除自己的光标
+        const cid = typeof body.cid === "string" && body.cid ? body.cid.slice(0, 64) : "";
+        if (cid) {
+          this.removeCursor(Symbol.for(`cursor:${cid}`));
         }
         this.sendJson(res, 200, { ok: true });
         return;
@@ -367,17 +367,12 @@ class LanServer {
         this.sendJson(res, 400, { error: "坐标不合法" });
         return;
       }
-      // HTTP 上报连接与 SSE 连接对不上号，按昵称归组；同昵称多标签页共享一个光标
-      let cursor = null;
-      for (const entry of this.cursors.values()) {
-        if (entry.name === from) {
-          cursor = entry;
-          break;
-        }
-      }
+      // cid 是上报端浏览器生成的稳定 id：同浏览器多标签页共享一个光标，客户端用它过滤掉自己
+      const cid = typeof body.cid === "string" && body.cid ? body.cid.slice(0, 64) : `ip-${this.clientIp(req)}`;
+      let cursor = this.cursors.get(Symbol.for(`cursor:${cid}`));
       if (!cursor) {
-        cursor = { name: from || "访客", x, y, at: Date.now(), color: this.pickColorIndex() };
-        this.cursors.set(Symbol(from), cursor);
+        cursor = { cid, name: from || "访客", x, y, at: Date.now(), color: this.pickColorIndex() };
+        this.cursors.set(Symbol.for(`cursor:${cid}`), cursor);
       }
       cursor.x = x;
       cursor.y = y;
@@ -386,7 +381,7 @@ class LanServer {
       if (!cursor.lastSent || Date.now() - cursor.lastSent >= CURSOR_MIN_INTERVAL_MS) {
         cursor.lastSent = Date.now();
         this.broadcastEvent("cursors", {
-          cursors: [{ cid: cursor.name, name: cursor.name, color: cursor.color, x, y }],
+          cursors: [{ cid: cursor.cid, name: cursor.name, color: cursor.color, x, y }],
         });
       }
       this.sendJson(res, 200, { ok: true });

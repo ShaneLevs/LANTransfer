@@ -3,7 +3,7 @@ import { CardStandalone } from "@lan/components/CardDetail";
 import { DesktopCanvas } from "@lan/components/DesktopCanvas";
 import { DesktopPanel } from "@lan/components/DesktopPanel";
 import { GuestNameDialog } from "@lan/components/GuestNameDialog";
-import { fetchState, subscribe } from "@lan/lib/api";
+import { fetchState, getClientId, subscribe } from "@lan/lib/api";
 import { getGuestName } from "@lan/lib/guest";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Toaster } from "@/components/ui/sonner";
@@ -59,6 +59,7 @@ export default function App() {
       onChanged: () => void refresh(),
       onStatus: setOnline,
       onCursors: (message) => {
+        const myCid = getClientId();
         const current = cursorsRef.current;
         if (message.remove) {
           if (!(message.remove in current)) return;
@@ -71,6 +72,8 @@ export default function App() {
         let next = current;
         let changed = false;
         for (const cursor of message.cursors) {
+          // 自己的光标不上屏（上报只是为了给别人看）
+          if (cursor.cid === myCid) continue;
           const existing = current[cursor.cid];
           // 位置没动就不触发渲染
           if (existing && existing.x === cursor.x && existing.y === cursor.y && existing.color === cursor.color) {

@@ -16,10 +16,14 @@ const PER_ROW = 5;
 const MIN_K = 0.2;
 const MAX_K = 3;
 
-/** 远端光标配色，顺序与服务端 CURSOR_COLORS 一致（label 备用） */
+/** 远端光标箭头的填充色与描边色（一一配对，深浅搭配保证在浅色卡片和深色桌面上都看得清） */
 const CURSOR_PALETTE = [
   "#2563eb", "#16a34a", "#dc2626", "#9333ea", "#ea580c",
   "#0891b2", "#db2777", "#65a30d", "#7c3aed", "#0d9488",
+];
+const CURSOR_STROKES = [
+  "#172554", "#052e16", "#450a0a", "#3b0764", "#431407",
+  "#083344", "#500724", "#1a2e05", "#2e1065", "#042f2e",
 ];
 
 /** 光标上报节流：约 30fps，闲时停发 */
@@ -378,21 +382,28 @@ export function DesktopCanvas({
           </div>
         ) : null}
 
-        {/* 其它访客的实时光标：箭头 + 昵称，颜色按访客区分 */}
+        {/* 其它访客的实时光标：指针箭头 + 昵称，填充色与边框色按访客区分 */}
         {Object.entries(cursors).map(([cid, cursor]) => {
-          const color = CURSOR_PALETTE[cursor.color % CURSOR_PALETTE.length] ?? "#2563eb";
+          const fill = CURSOR_PALETTE[cursor.color % CURSOR_PALETTE.length] ?? "#2563eb";
+          const stroke = CURSOR_STROKES[cursor.color % CURSOR_STROKES.length] ?? "#1e3a8a";
           return (
             <div
               key={cid}
               className="pointer-events-none absolute top-0 left-0 z-10 transition-transform duration-75 ease-linear will-change-transform"
               style={{ transform: `translate3d(${view.x + cursor.x * view.k}px, ${view.y + cursor.y * view.k}px, 0)` }}
             >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
-                <path d="M3 1l11 6.5-5 1.2L11 15 3 1z" fill={color} stroke="white" strokeWidth="1.2" />
+              <svg width="22" height="22" viewBox="0 0 1024 1024" aria-hidden>
+                <path
+                  d="M94.976 140.224l285.056 768c12.928 34.816 63.936 28.544 68.032-8.32l1.728-15.872c17.088-146.304 53.504-249.28 107.712-308.736l9.088-9.408c58.432-57.408 164.416-96.704 317.632-115.648l15.808-1.792c36.8-4.288 42.88-55.104 8.256-67.968l-768-285.44a35.2 35.2 0 0 0-45.312 45.184z m92.736 47.488l571.84 212.544c-108.032 24.64-188.8 62.912-242.944 116.096l-10.432 10.816-10.304 11.84c-40.384 49.024-70.656 115.2-91.52 198.72l-4.928 20.48-211.712-570.496z"
+                  fill={fill}
+                  stroke={stroke}
+                  strokeWidth={48}
+                  strokeLinejoin="round"
+                />
               </svg>
               <span
-                className="ml-2 inline-block -translate-y-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none text-white shadow-sm"
-                style={{ backgroundColor: color }}
+                className="ml-3 inline-block -translate-y-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium leading-none text-white shadow-sm"
+                style={{ backgroundColor: fill, borderColor: stroke }}
               >
                 {cursor.name}
               </span>

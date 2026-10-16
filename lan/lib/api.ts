@@ -48,7 +48,7 @@ export function subscribe(handlers: {
 
 /** 广播里的远端访客光标 */
 export interface RemoteCursor {
-  /** 光标标识（当前为访客昵称） */
+  /** 光标标识：上报端浏览器生成的稳定 id，客户端用它过滤掉自己的光标 */
   cid: string;
   name: string;
   /** 服务端分配的颜色序号，配合 CURSOR_PALETTE 使用 */
@@ -57,9 +57,25 @@ export interface RemoteCursor {
   y: number;
 }
 
+/** 本端光标的唯一标识：同一浏览器多个标签页共享，用于别人过滤掉「自己」 */
+const CLIENT_KEY = "lan-transfer:client-id";
+
+export function getClientId(): string {
+  try {
+    let id = localStorage.getItem(CLIENT_KEY);
+    if (!id) {
+      id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem(CLIENT_KEY, id);
+    }
+    return id;
+  } catch {
+    return `anon-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
 /** 上报本端光标位置（世界坐标），服务端转发给其它网页端 */
 export function sendCursor(x: number, y: number): void {
-  const body = JSON.stringify({ x, y, from: getGuestName() });
+  const body = JSON.stringify({ x, y, from: getGuestName(), cid: getClientId() });
   fetch("/api/cursor", { method: "POST", headers: jsonHeaders, body, keepalive: true }).catch(() => {
     /* 光标上报失败可忽略，下一次移动会再试 */
   });
@@ -67,7 +83,7 @@ export function sendCursor(x: number, y: number): void {
 
 /** 离开时通知服务端立刻移除自己的光标 */
 export function sendCursorLeave(): void {
-  const body = JSON.stringify({ leave: true, from: getGuestName() });
+  const body = JSON.stringify({ leave: true, from: getGuestName(), cid: getClientId() });
   fetch("/api/cursor", { method: "POST", headers: jsonHeaders, body, keepalive: true }).catch(() => {
     /* 忽略 */
   });
