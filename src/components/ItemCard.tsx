@@ -8,13 +8,11 @@ import type { TransferItem } from "@/types";
 export function ItemMeta({ item, className = "" }: { item: TransferItem; className?: string }) {
   const parts = [ownerName(item), item.ip, formatTime(item.time), KIND_LABEL[item.kind]].filter(Boolean);
   return (
-    <div
-      className={"flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground " + className}
-    >
+    <div className={"flex items-center gap-x-1.5 text-xs whitespace-nowrap text-muted-foreground " + className}>
       {parts.map((part, index) => (
-        <span key={index} className="flex items-center gap-1.5">
+        <span key={index} className="flex min-w-0 items-center gap-1.5">
           {index > 0 ? <span className="opacity-50">·</span> : null}
-          <span className="max-w-[12rem] truncate">{part}</span>
+          <span className="max-w-[14rem] truncate">{part}</span>
         </span>
       ))}
     </div>

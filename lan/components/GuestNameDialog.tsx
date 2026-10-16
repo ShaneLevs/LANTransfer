@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getGuestName, setGuestName } from "@lan/lib/guest";
+import { getGuestName, randomGuestName, setGuestName } from "@lan/lib/guest";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { UserRound } from "lucide-react";
+import { Dices, UserRound } from "lucide-react";
 
 /**
  * 访客昵称引导与修改：
@@ -43,6 +43,13 @@ export function GuestNameDialog({
     onOpenChange(false);
   };
 
+  const rollRandom = () => {
+    let next = randomGuestName();
+    // 连点时避免抽到和当前一样的
+    if (next === value) next = randomGuestName();
+    setValue(next);
+  };
+
   return (
     <Dialog
       open={open}
@@ -64,24 +71,37 @@ export function GuestNameDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserRound className="size-4" />
-            怎么称呼你？
+            怎么称呼你？（可选）
           </DialogTitle>
           <DialogDescription>
-            填个昵称，你放上桌面的内容会署你的名。只保存在这台设备的浏览器里，可随时改。
+            填个昵称，你放上桌面的内容会署你的名；不填就按「访客」显示。只保存在这台设备的浏览器里，可随时改。
           </DialogDescription>
         </DialogHeader>
-        <Input
-          value={value}
-          maxLength={24}
-          placeholder="例如：小明 / 工位电脑"
-          onChange={(event) => setValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              save();
-            }
-          }}
-        />
+        <div className="flex gap-2">
+          <Input
+            value={value}
+            maxLength={24}
+            placeholder="例如：小明 / 工位电脑（可留空）"
+            onChange={(event) => setValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                save();
+              }
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            title="随机取一个昵称"
+            onClick={rollRandom}
+          >
+            <Dices className="size-4" />
+            随机
+          </Button>
+        </div>
         <DialogFooter>
           {dismissable ? (
             <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
@@ -89,7 +109,7 @@ export function GuestNameDialog({
             </Button>
           ) : null}
           <Button size="sm" onClick={save}>
-            {getGuestName() ? "保存" : "就用这个"}
+            {getGuestName() ? "保存" : value.trim() ? "就用这个" : "先这样"}
           </Button>
         </DialogFooter>
       </DialogContent>

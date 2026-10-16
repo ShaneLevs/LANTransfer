@@ -29,8 +29,8 @@ const MAX_PREVIEW_LENGTH = 2000;
 const MAX_CANVAS_COORD = 100000;
 // 共享桌面桌面的默认网格布局（与网页端 DesktopCanvas 保持一致）
 const CANVAS_COLS = 5;
-const CANVAS_GAP_X = 300;
-const CANVAS_GAP_Y = 220;
+const CANVAS_GAP_X = 360;
+const CANVAS_GAP_Y = 240;
 const CANVAS_ORIGIN = 60;
 
 /** 桌面坐标限制在有限数且不超出范围，非法值回原点 */

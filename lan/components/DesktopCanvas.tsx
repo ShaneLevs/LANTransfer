@@ -9,9 +9,9 @@ import type { TransferItem } from "@/types";
 import { Grid2x2, Maximize, Plus, ZoomIn, ZoomOut } from "lucide-react";
 
 /** 桌面卡片的名义宽度与自动排布间距（世界坐标），与服务端默认网格一致 */
-const CARD_W = 260;
-const GAP_X = 300;
-const GAP_Y = 220;
+const CARD_W = 320;
+const GAP_X = 360;
+const GAP_Y = 240;
 const PER_ROW = 5;
 const MIN_K = 0.2;
 const MAX_K = 3;
@@ -175,6 +175,11 @@ export function DesktopCanvas({ items }: { items: TransferItem[] }) {
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+    // 没拖动过的卡片当一次点击：文字 / 图片打开放大查看（file 走下载，没有弹窗）
+    if (drag && drag.mode === "card" && !drag.moved) {
+      const item = items.find((each) => each.id === drag.id);
+      if (item && item.kind !== "file") setViewerId(item.id);
+    }
     if (!drag || drag.mode !== "card" || !drag.moved) return;
     const pos = overrides[drag.id];
     if (!pos) return;
@@ -295,10 +300,11 @@ export function DesktopCanvas({ items }: { items: TransferItem[] }) {
         }}
         onDrop={onDrop}
       >
-        {/* 世界坐标层：卡片按桌面坐标摆放，随平移缩放 */}
+        {/* 世界坐标层：卡片按桌面坐标摆放，随平移缩放。
+            will-change 让整层预先栅格化，避免缩放下悬停时浏览器重新光栅化导致文字发糊 */}
         <div
-          className="absolute top-0 left-0 origin-top-left will-change-transform"
-          style={{ transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.k})` }}
+          className="absolute top-0 left-0 origin-top-left"
+          style={{ transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.k})`, willChange: "transform" }}
         >
           {entries.map(({ item, pos, z }) => (
             <div
@@ -306,20 +312,16 @@ export function DesktopCanvas({ items }: { items: TransferItem[] }) {
               data-card-id={item.id}
               className={
                 "absolute top-0 left-0 rounded-lg border bg-card p-3 shadow-sm " +
-                (draggingId === item.id ? "shadow-lg ring-2 ring-primary/40" : "hover:shadow-md")
+                (draggingId === item.id
+                  ? items.find((each) => each.id === item.id)?.kind !== "file"
+                    ? "cursor-grabbing shadow-lg ring-2 ring-primary/40"
+                    : "cursor-grabbing shadow-lg"
+                  : "hover:shadow-md")
               }
               style={{ width: CARD_W, transform: `translate3d(${pos.x}px, ${pos.y}px, 0)`, zIndex: z }}
             >
               <ItemMeta item={item} className="mb-1.5" />
-              <div
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (item.kind !== "file") setViewerId(item.id);
-                }}
-                className={item.kind !== "file" ? "cursor-zoom-in" : ""}
-              >
-                <CardBody item={item} />
-              </div>
+              <CardBody item={item} />
               <div className="mt-2 flex gap-1.5" data-stop onPointerDown={(event) => event.stopPropagation()}>
                 <CardActions item={item} />
               </div>
@@ -369,7 +371,7 @@ export function DesktopCanvas({ items }: { items: TransferItem[] }) {
           </div>
 
           <p className="hidden min-w-0 flex-1 truncate px-1 text-xs text-muted-foreground md:block">
-            可以直接粘贴文字、截图，或把文件拖进来，自动成为卡片；拖动卡片可摆位置
+            可以直接粘贴文字、截图，或把文件拖进来；拖动卡片摆位置，点卡片放大查看
           </p>
 
           <div

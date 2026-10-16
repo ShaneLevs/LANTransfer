@@ -405,6 +405,9 @@ class LanServer {
         this.sendJson(res, 404, { error: "网页端资源缺失，请重新构建插件" });
         return;
       }
+    } else if (pathname === "/logo.svg" || pathname === "/logo.png") {
+      // 网页端 favicon（lan/index.html 里以 ../logo.* 引用，落到站点根）
+      target = path.join(this.rootDir, pathname);
     } else if (pathname.startsWith("/assets/")) {
       const candidate = path.join(this.rootDir, pathname);
       if (isInside(path.join(this.rootDir, "assets"), candidate)) {
