@@ -29,12 +29,48 @@ export async function fetchState(): Promise<LanClientState> {
 export function subscribe(handlers: {
   onChanged: () => void;
   onStatus: (online: boolean) => void;
+  /** 收到其它访客的光标（x/y 为桌面世界坐标；remove 为被移除的光标键） */
+  onCursors?: (message: { cursors?: RemoteCursor[]; remove?: string }) => void;
 }): () => void {
   const source = new EventSource("/api/events");
   source.addEventListener("open", () => handlers.onStatus(true));
   source.addEventListener("changed", () => handlers.onChanged());
+  source.addEventListener("cursors", (event) => {
+    try {
+      handlers.onCursors?.(JSON.parse((event as MessageEvent).data));
+    } catch {
+      /* 忽略坏消息 */
+    }
+  });
   source.addEventListener("error", () => handlers.onStatus(false));
   return () => source.close();
+}
+
+/** 广播里的远端访客光标 */
+export interface RemoteCursor {
+  /** 光标标识（当前为访客昵称） */
+  cid: string;
+  name: string;
+  /** 服务端分配的颜色序号，配合 CURSOR_PALETTE 使用 */
+  color: number;
+  x: number;
+  y: number;
+}
+
+/** 上报本端光标位置（世界坐标），服务端转发给其它网页端 */
+export function sendCursor(x: number, y: number): void {
+  const body = JSON.stringify({ x, y, from: getGuestName() });
+  fetch("/api/cursor", { method: "POST", headers: jsonHeaders, body, keepalive: true }).catch(() => {
+    /* 光标上报失败可忽略，下一次移动会再试 */
+  });
+}
+
+/** 离开时通知服务端立刻移除自己的光标 */
+export function sendCursorLeave(): void {
+  const body = JSON.stringify({ leave: true, from: getGuestName() });
+  fetch("/api/cursor", { method: "POST", headers: jsonHeaders, body, keepalive: true }).catch(() => {
+    /* 忽略 */
+  });
 }
 
 export function sendText(text: string, pos?: { x: number; y: number }): Promise<void> {

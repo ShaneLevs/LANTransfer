@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { moveItem, sendText, uploadFile } from "@lan/lib/api";
+import { moveItem, sendCursor, sendCursorLeave, sendText, uploadFile } from "@lan/lib/api";
 import { CardActions, CardBody, CardViewerDialog } from "@lan/components/CardDetail";
 import { CardComposer } from "@/components/CardComposer";
 import { ItemMeta } from "@/components/ItemCard";
@@ -15,6 +15,15 @@ const GAP_Y = 240;
 const PER_ROW = 5;
 const MIN_K = 0.2;
 const MAX_K = 3;
+
+/** 远端光标配色，顺序与服务端 CURSOR_COLORS 一致（label 备用） */
+const CURSOR_PALETTE = [
+  "#2563eb", "#16a34a", "#dc2626", "#9333ea", "#ea580c",
+  "#0891b2", "#db2777", "#65a30d", "#7c3aed", "#0d9488",
+];
+
+/** 光标上报节流：约 30fps，闲时停发 */
+const CURSOR_SEND_INTERVAL_MS = 40;
 
 type Pos = { x: number; y: number };
 type View = { x: number; y: number; k: number };
@@ -38,8 +47,14 @@ type Gesture =
   | { mode: "card"; id: string; startX: number; startY: number; origin: Pos; moved: boolean }
   | null;
 
-/** 共享桌面：可平移缩放的桌面（电脑浏览器专用） */
-export function DesktopCanvas({ items }: { items: TransferItem[] }) {
+/** 共享桌面：可平移缩放的桌面（电脑浏览器专用）。cursors 是其它访客的实时光标，随视图变换渲染 */
+export function DesktopCanvas({
+  items,
+  cursors = {},
+}: {
+  items: TransferItem[];
+  cursors?: Record<string, { name: string; color: number; x: number; y: number }>;
+}) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture>(null);
 
@@ -84,6 +99,32 @@ export function DesktopCanvas({ items }: { items: TransferItem[] }) {
     [toWorld]
   );
 
+  // 本端光标上报：按固定频率把屏幕坐标换成世界坐标发给服务端，别人就能实时看到
+  const cursorRef = useRef<{ x: number; y: number } | null>(null);
+  const reportCursor = useCallback(
+    (clientX: number, clientY: number) => {
+      cursorRef.current = toWorld(clientX, clientY);
+    },
+    [toWorld]
+  );
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const pos = cursorRef.current;
+      if (pos) sendCursor(pos.x, pos.y);
+    }, CURSOR_SEND_INTERVAL_MS);
+    const onLeave = () => {
+      cursorRef.current = null;
+      sendCursorLeave();
+    };
+    window.addEventListener("pagehide", onLeave);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("pagehide", onLeave);
+      sendCursorLeave();
+    };
+  }, []);
+
   /** 以某个屏幕锚点缩放 */
   const zoomTo = useCallback((factor: number, anchor?: { sx: number; sy: number }) => {
     const rect = surfaceRef.current?.getBoundingClientRect();
@@ -103,6 +144,7 @@ export function DesktopCanvas({ items }: { items: TransferItem[] }) {
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       const rect = surface.getBoundingClientRect();
+      reportCursor(event.clientX, event.clientY);
       zoomTo(Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0015)), {
         sx: event.clientX - rect.left,
         sy: event.clientY - rect.top,
@@ -110,7 +152,7 @@ export function DesktopCanvas({ items }: { items: TransferItem[] }) {
     };
     surface.addEventListener("wheel", onWheel, { passive: false });
     return () => surface.removeEventListener("wheel", onWheel);
-  }, [zoomTo]);
+  }, [zoomTo, reportCursor]);
 
   /** 清理已消失条目的覆盖坐标 */
   useEffect(() => {
@@ -154,6 +196,7 @@ export function DesktopCanvas({ items }: { items: TransferItem[] }) {
   };
 
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    reportCursor(event.clientX, event.clientY);
     const drag = gesture.current;
     if (!drag) return;
     const dx = event.clientX - drag.startX;
@@ -284,8 +327,8 @@ export function DesktopCanvas({ items }: { items: TransferItem[] }) {
           backgroundPosition: `${view.x}px ${view.y}px`,
           cursor: "grab",
         }}
-        onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
+        onPointerDown={onPointerDown}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onDoubleClick={onDoubleClick}
@@ -334,6 +377,28 @@ export function DesktopCanvas({ items }: { items: TransferItem[] }) {
             桌面还是空的：粘贴、拖入文件，或点右上角「新建卡片」
           </div>
         ) : null}
+
+        {/* 其它访客的实时光标：箭头 + 昵称，颜色按访客区分 */}
+        {Object.entries(cursors).map(([cid, cursor]) => {
+          const color = CURSOR_PALETTE[cursor.color % CURSOR_PALETTE.length] ?? "#2563eb";
+          return (
+            <div
+              key={cid}
+              className="pointer-events-none absolute top-0 left-0 z-10 transition-transform duration-75 ease-linear will-change-transform"
+              style={{ transform: `translate3d(${view.x + cursor.x * view.k}px, ${view.y + cursor.y * view.k}px, 0)` }}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
+                <path d="M3 1l11 6.5-5 1.2L11 15 3 1z" fill={color} stroke="white" strokeWidth="1.2" />
+              </svg>
+              <span
+                className="ml-2 inline-block -translate-y-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none text-white shadow-sm"
+                style={{ backgroundColor: color }}
+              >
+                {cursor.name}
+              </span>
+            </div>
+          );
+        })}
 
         {dropping ? (
           <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-primary/60 bg-primary/5 text-sm font-medium">

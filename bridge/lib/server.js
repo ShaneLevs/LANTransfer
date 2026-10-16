@@ -7,8 +7,23 @@ const path = require("node:path");
 
 const { contentType, guestName, hostUser, isInside, listIps, pickDisplayIp, readJsonBody } = require("./util.js");
 
+/** 访客光标配色（网页端与名称一起展示） */
+const CURSOR_COLORS = [
+  "#2563eb", "#16a34a", "#dc2626", "#9333ea", "#ea580c",
+  "#0891b2", "#db2777", "#65a30d", "#7c3aed", "#0d9488",
+];
+
+/** 光标键：Map 里用 Symbol，广播时用昵称（同昵称共享一个光标） */
+function cursorKey(cid) {
+  return typeof cid === "symbol" ? cid.description || "cursor" : String(cid);
+}
+
 const MAX_TEXT_BYTES = 1024 * 1024;
 const KEEP_ALIVE_MS = 25000;
+// 光标闲置多久后不再广播给其他人（ Visitors 关页后 SSE 会在 KEEP_ALIVE 周期内被清理，这里兜底）
+const CURSOR_TTL_MS = 15000;
+// 光标上报节流：最多每这么多毫秒转发一次
+const CURSOR_MIN_INTERVAL_MS = 40;
 const INLINE_SAFE = new Set([
   "text/plain; charset=utf-8",
   "image/png",
@@ -46,6 +61,8 @@ class LanServer {
     this.clients = new Set();
     this.sockets = new Set();
     this.timer = null;
+    // 在线访客光标：cid -> { name, x, y, at, color }（cid = Symbol(name)，同昵称共享一个光标）
+    this.cursors = new Map();
     const { port, bindIp } = store.settings;
     this.status = { running: false, error: "", port, bindIp, url: "", host: "" };
   }
@@ -156,6 +173,7 @@ class LanServer {
   startKeepAlive() {
     this.stopKeepAlive();
     this.timer = setInterval(() => {
+      this.pruneCursors();
       for (const res of this.clients) {
         try {
           res.write(": ping\n\n");
@@ -176,11 +194,24 @@ class LanServer {
   /** 通知所有网页端：数据有变化 */
   broadcast() {
     for (const res of this.clients) {
-      try {
-        res.write(`event: changed\ndata: ${Date.now()}\n\n`);
-      } catch {
-        this.clients.delete(res);
-      }
+      this.sendEvent(res, "changed", Date.now());
+    }
+  }
+
+  /** 给单个 SSE 客户端发一条事件 */
+  sendEvent(res, event, data) {
+    try {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    } catch {
+      this.clients.delete(res);
+    }
+  }
+
+  /** 给除 skip 外的所有 SSE 客户端发一条事件 */
+  broadcastEvent(event, data, skip) {
+    for (const res of this.clients) {
+      if (res === skip) continue;
+      this.sendEvent(res, event, data);
     }
   }
 
@@ -243,6 +274,10 @@ class LanServer {
         this.handleMove(req, res);
         return;
       }
+      if (pathname === "/api/cursor" && req.method === "POST") {
+        this.handleCursor(req, res);
+        return;
+      }
       if (pathname === "/favicon.ico") {
         res.writeHead(204).end();
         return;
@@ -262,9 +297,102 @@ class LanServer {
     });
     res.write(`event: ready\ndata: ${Date.now()}\n\n`);
     this.clients.add(res);
+    this.attachCursorChannel(res);
     req.on("close", () => {
       this.clients.delete(res);
+      // SSE 断开不立刻删光标：HTTP 上报与 SSE 是两条连接，同访客可能还在动，交给 TTL 兜底
     });
+  }
+
+  /** 分配一个和现有访客不撞色的颜色序号 */
+  pickColorIndex() {
+    const used = new Set(Array.from(this.cursors.values()).map((cursor) => cursor.color));
+    for (let index = 0; index < CURSOR_COLORS.length; index += 1) {
+      if (!used.has(index)) return index;
+    }
+    return this.cursors.size % CURSOR_COLORS.length;
+  }
+
+  /** 新 SSE 访客接入：把它已在线的访客光标快照发给新访客，中途加入也能立刻看到别人 */
+  attachCursorChannel(res) {
+    const others = Array.from(this.cursors.values()).map((cursor) => ({
+      cid: cursor.name,
+      name: cursor.name,
+      color: cursor.color,
+      x: cursor.x,
+      y: cursor.y,
+    }));
+    if (others.length) {
+      this.sendEvent(res, "cursors", { cursors: others });
+    }
+  }
+
+  /** 移除某访客的光标并通知所有人 */
+  removeCursor(cid) {
+    if (!this.cursors.has(cid)) return;
+    this.cursors.delete(cid);
+    this.broadcastEvent("cursors", { remove: cursorKey(cid) });
+  }
+
+  /** 光标闲置清理：超时未更新的访客光标不再下发 */
+  pruneCursors() {
+    const now = Date.now();
+    for (const [cid, cursor] of this.cursors) {
+      if (now - cursor.at > CURSOR_TTL_MS) {
+        this.cursors.delete(cid);
+        this.broadcastEvent("cursors", { remove: cursorKey(cid) });
+      }
+    }
+  }
+
+  /** 接收网页端上报的光标位置，转发给除上报者外的所有在线访客 */
+  async handleCursor(req, res) {
+    try {
+      const body = await readJsonBody(req, 512);
+      const from = guestName(body.from);
+      if (body.leave) {
+        // 离开上报没有 cid（HTTP 与 SSE 是两条连接），按昵称移除同署名的光标
+        for (const [cid, cursor] of this.cursors) {
+          if (cursor.name === from) {
+            this.cursors.delete(cid);
+            this.broadcastEvent("cursors", { remove: cursorKey(cid) });
+          }
+        }
+        this.sendJson(res, 200, { ok: true });
+        return;
+      }
+      const x = Number(body.x);
+      const y = Number(body.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 100000 || Math.abs(y) > 100000) {
+        this.sendJson(res, 400, { error: "坐标不合法" });
+        return;
+      }
+      // HTTP 上报连接与 SSE 连接对不上号，按昵称归组；同昵称多标签页共享一个光标
+      let cursor = null;
+      for (const entry of this.cursors.values()) {
+        if (entry.name === from) {
+          cursor = entry;
+          break;
+        }
+      }
+      if (!cursor) {
+        cursor = { name: from || "访客", x, y, at: Date.now(), color: this.pickColorIndex() };
+        this.cursors.set(Symbol(from), cursor);
+      }
+      cursor.x = x;
+      cursor.y = y;
+      cursor.at = Date.now();
+      // 转发限频：光标移动很密，做 40ms 合帧，足够平滑又省带宽
+      if (!cursor.lastSent || Date.now() - cursor.lastSent >= CURSOR_MIN_INTERVAL_MS) {
+        cursor.lastSent = Date.now();
+        this.broadcastEvent("cursors", {
+          cursors: [{ cid: cursor.name, name: cursor.name, color: cursor.color, x, y }],
+        });
+      }
+      this.sendJson(res, 200, { ok: true });
+    } catch (error) {
+      this.sendJson(res, 400, { error: error.message || "光标上报失败" });
+    }
   }
 
   /** 拖动共享桌面上的卡片后保存坐标 */

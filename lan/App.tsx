@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CardStandalone } from "@lan/components/CardDetail";
 import { DesktopCanvas } from "@lan/components/DesktopCanvas";
 import { DesktopPanel } from "@lan/components/DesktopPanel";
@@ -36,6 +36,10 @@ export default function App() {
   const [nameDialogOpen, setNameDialogOpen] = useState(() => !getGuestName());
   // ?card=<id> 是单卡片分享链接，只展示那一条内容
   const cardId = useMemo(() => new URLSearchParams(window.location.search).get("card"), []);
+  // 其它访客的实时光标（桌面视图渲染），用 ref 存避免高频移动触发整棵树重渲
+  const [remoteCursors, setRemoteCursors] = useState<Record<string, { cid: string; name: string; color: number; x: number; y: number }>>({});
+  const cursorsRef = useRef(remoteCursors);
+  cursorsRef.current = remoteCursors;
 
   const refresh = useCallback(async () => {
     try {
@@ -51,7 +55,36 @@ export default function App() {
 
   useEffect(() => {
     void refresh();
-    return subscribe({ onChanged: () => void refresh(), onStatus: setOnline });
+    return subscribe({
+      onChanged: () => void refresh(),
+      onStatus: setOnline,
+      onCursors: (message) => {
+        const current = cursorsRef.current;
+        if (message.remove) {
+          if (!(message.remove in current)) return;
+          const next = { ...current };
+          delete next[message.remove];
+          setRemoteCursors(next);
+          return;
+        }
+        if (!message.cursors?.length) return;
+        let next = current;
+        let changed = false;
+        for (const cursor of message.cursors) {
+          const existing = current[cursor.cid];
+          // 位置没动就不触发渲染
+          if (existing && existing.x === cursor.x && existing.y === cursor.y && existing.color === cursor.color) {
+            continue;
+          }
+          if (!changed) {
+            next = { ...current };
+            changed = true;
+          }
+          next[cursor.cid] = { cid: cursor.cid, name: cursor.name, color: cursor.color, x: cursor.x, y: cursor.y };
+        }
+        if (changed) setRemoteCursors(next);
+      },
+    });
   }, [refresh]);
 
   const user = state?.user || "主机";
@@ -126,7 +159,7 @@ export default function App() {
         </main>
       ) : prefersCanvas ? (
         <main className="min-h-0 flex-1 p-2 sm:p-3">
-          <DesktopCanvas items={items} />
+          <DesktopCanvas items={items} cursors={remoteCursors} />
         </main>
       ) : (
         <main className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-6">
