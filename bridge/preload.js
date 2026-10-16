@@ -321,7 +321,20 @@ function handleMatchEnter(type, payload) {
 
 function setup() {
   const dataDir = utools.getPluginLocalDataPath();
-  const defaultRecvDir = path.join(utools.getPath("downloads"), "LANTransfer");
+  // v0.3.0 起默认目录改为「共享桌面」；老用户已用旧目录（有内容）则继续沿用，避免文件“失踪”
+  const downloads = utools.getPath("downloads");
+  const legacyDir = path.join(downloads, "LANTransfer");
+  const freshDir = path.join(downloads, "共享桌面");
+  const legacyHasFiles = (dir) => {
+    try {
+      return fs
+        .readdirSync(dir, { withFileTypes: true })
+        .some((entry) => entry.isDirectory() || entry.name !== ".DS_Store");
+    } catch {
+      return false;
+    }
+  };
+  const defaultRecvDir = fs.existsSync(legacyDir) && legacyHasFiles(legacyDir) ? legacyDir : freshDir;
   store = new Store({ dataDir, defaultRecvDir });
   server = new LanServer({
     store,

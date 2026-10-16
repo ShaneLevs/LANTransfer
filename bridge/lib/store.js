@@ -103,17 +103,14 @@ class Store {
     writeJsonAtomic(this.stateFile, { settings: this.settings, items: this.items });
   }
 
-  /** 存储目录下的子目录（shared / uploads 仅用于旧数据） */
+  /** 存储目录下的子目录：新内容直接放存储根目录，shared / uploads 只为读取旧数据保留 */
   dirFor(scope) {
-    const folder = scope === "shared" ? "shared" : scope === "upload" ? "uploads" : "clipboard";
-    return path.join(this.settings.recvDir, folder);
+    const folder = scope === "shared" ? "shared" : scope === "upload" ? "uploads" : "";
+    return folder ? path.join(this.settings.recvDir, folder) : this.settings.recvDir;
   }
 
   ensureDirs() {
     fs.mkdirSync(this.settings.recvDir, { recursive: true });
-    for (const scope of SCOPES) {
-      fs.mkdirSync(this.dirFor(scope), { recursive: true });
-    }
   }
 
   updateSettings(patch) {

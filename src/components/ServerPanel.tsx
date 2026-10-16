@@ -195,7 +195,8 @@ export function ServerPanel({ state }: { state: AppState }) {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              桌面上的文字、图片与文件都保存在这里的 clipboard 子目录（旧版本的 shared、uploads 子目录仍保留在磁盘上，可自行清理）。
+              桌面上的文字、图片与文件都直接保存在这个目录里（旧版本 LANTransfer 目录及其 shared、uploads
+              子目录里的旧文件仍可下载，可自行清理）。
             </p>
           </div>
 
